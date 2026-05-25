@@ -81,29 +81,39 @@ async def extract_table_from_image(image_bytes: bytes, filename: str) -> Dict[st
         # 1. Fallback 1: Direct OpenRouter Vision API (if key starts with 'sk-or-' or 'sk-')
         if api_key and (api_key.startswith('sk-or-') or 'openrouter' in api_key.lower()):
             logging.info("🧠 Using OpenRouter Direct Vision API for table extraction")
+            
+            # Dynamically determine image MIME type
+            mime_type = "image/png"
+            if filename.lower().endswith(('.jpg', '.jpeg')):
+                mime_type = "image/jpeg"
+            elif filename.lower().endswith('.gif'):
+                mime_type = "image/gif"
+            elif filename.lower().endswith('.webp'):
+                mime_type = "image/webp"
+
+            # OpenRouter requires HTTP-Referer and X-Title for free models
             headers = {
                 "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://github.com/verupakshasharma9/Handwritten-Excel-Converter",
+                "X-Title": "Handwritten Table Converter"
             }
-            # Use gemini-flash-1.5-free which is 100% free and extremely stable on OpenRouter
+            
+            # Combine system instruction into the user prompt to prevent compatibility issues
             payload = {
                 "model": "google/gemini-flash-1.5-free",
                 "messages": [
-                    {
-                        "role": "system",
-                        "content": "You are an expert at analyzing handwritten tables and extracting structured data into a valid JSON array of arrays."
-                    },
                     {
                         "role": "user",
                         "content": [
                             {
                                 "type": "text",
-                                "text": "Analyze this handwritten table image and extract all data into structured format.\n\nReturn ONLY a valid JSON array of arrays representing the table, containing header row first and data rows. Do NOT wrap in markdown code fences, do not write ```json, just return pure JSON text."
+                                "text": "You are an expert at analyzing handwritten tables and extracting structured data.\n\nAnalyze this handwritten table image and extract all data into a structured format.\n\nReturn ONLY a valid JSON array of arrays representing the table, containing the header row first and data rows. Do NOT wrap in markdown code fences, do not write ```json, just return pure JSON text."
                             },
                             {
                                 "type": "image_url",
                                 "image_url": {
-                                    "url": f"data:image/png;base64,{image_base64}"
+                                    "url": f"data:{mime_type};base64,{image_base64}"
                                 }
                             }
                         ]
