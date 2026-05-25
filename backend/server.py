@@ -80,7 +80,7 @@ async def extract_table_from_image(image_bytes: bytes, filename: str) -> Dict[st
 
         # 1. Fallback 1: Direct OpenRouter Vision API (if key starts with 'sk-or-' or 'sk-')
         if api_key and (api_key.startswith('sk-or-') or 'openrouter' in api_key.lower()):
-            logging.info("🧠 Using OpenRouter Direct Vision API for table extraction")
+            logging.info("🧠 Using OpenRouter Direct Vision API with resilient model fallback")
             
             # Dynamically determine image MIME type
             mime_type = "image/png"
@@ -99,46 +99,65 @@ async def extract_table_from_image(image_bytes: bytes, filename: str) -> Dict[st
                 "X-Title": "Handwritten Table Converter"
             }
             
-            # Combine system instruction into the user prompt to prevent compatibility issues
-            payload = {
-                "model": "google/gemini-flash-1.5-free",
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": [
+            # Resilient list of top free vision/OCR models on OpenRouter
+            models_to_try = [
+                "qwen/qwen-2-vl-7b-instruct:free",               # Free, state-of-the-art vision & outstanding table OCR
+                "meta-llama/llama-3.2-11b-vision-instruct:free",  # Free, fully OpenAI-compatible base64 vision parsing
+                "mistralai/pixtral-12b:free",                     # Free, robust multi-modal OCR engine
+                "google/gemini-flash-1.5-free"                    # Free, standard fallback
+            ]
+
+            last_error = None
+            for model_name in models_to_try:
+                try:
+                    logging.info(f"🚀 Attempting table extraction using OpenRouter model: {model_name}")
+                    payload = {
+                        "model": model_name,
+                        "messages": [
                             {
-                                "type": "text",
-                                "text": "You are an expert at analyzing handwritten tables and extracting structured data.\n\nAnalyze this handwritten table image and extract all data into a structured format.\n\nReturn ONLY a valid JSON array of arrays representing the table, containing the header row first and data rows. Do NOT wrap in markdown code fences, do not write ```json, just return pure JSON text."
-                            },
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:{mime_type};base64,{image_base64}"
-                                }
+                                "role": "user",
+                                "content": [
+                                    {
+                                        "type": "text",
+                                        "text": "You are an expert at analyzing handwritten tables and extracting structured data.\n\nAnalyze this handwritten table image and extract all data into structured format.\n\nReturn ONLY a valid JSON array of arrays representing the table, containing the header row first and data rows. Do NOT wrap in markdown code fences, do not write ```json, just return pure JSON text."
+                                    },
+                                    {
+                                        "type": "image_url",
+                                        "image_url": {
+                                            "url": f"data:{mime_type};base64,{image_base64}"
+                                        }
+                                    }
+                                ]
                             }
                         ]
                     }
-                ]
-            }
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload)
-                response.raise_for_status()
-                result = response.json()
-                content = result["choices"][0]["message"]["content"].strip()
-                
-                # Clean content if it contains markdown code fences
-                if content.startswith("```"):
-                    content = content.strip("`json").strip("`").strip()
-                
-                table_data = json.loads(content)
-                if not isinstance(table_data, list) or not table_data:
-                    raise ValueError("Parsed data is not a list")
+                    async with httpx.AsyncClient(timeout=60.0) as client:
+                        response = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload)
+                        response.raise_for_status()
+                        result = response.json()
+                        content = result["choices"][0]["message"]["content"].strip()
+                        
+                        # Clean content if it contains markdown code fences
+                        if content.startswith("```"):
+                            content = content.strip("`json").strip("`").strip()
+                        
+                        table_data = json.loads(content)
+                        if not isinstance(table_data, list) or not table_data:
+                            raise ValueError("Parsed data is not a list")
 
-                return {
-                    "success": True,
-                    "table_data": table_data,
-                    "message": "Table extracted successfully via OpenRouter"
-                }
+                        logging.info(f"✅ Successful table extraction with model: {model_name}")
+                        return {
+                            "success": True,
+                            "table_data": table_data,
+                            "message": f"Table extracted successfully via OpenRouter ({model_name})"
+                        }
+                except Exception as e:
+                    logging.warning(f"⚠️ Model {model_name} failed: {e}")
+                    last_error = e
+                    continue
+
+            # If all models in the fallback loop fail, raise the last exception
+            raise last_error
 
         # 2. Standard Emergent Integrations library
         if EMERGENT_AVAILABLE and api_key:
