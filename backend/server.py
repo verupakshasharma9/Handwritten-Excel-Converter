@@ -85,9 +85,9 @@ async def extract_table_from_image(image_bytes: bytes, filename: str) -> Dict[st
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json"
             }
-            # Use gemini-2.5-flash which is free/extremely cheap and offers outstanding vision/OCR capabilities
+            # Use gemini-2.5-flash:free which is 100% free on OpenRouter and offers outstanding vision/OCR capabilities
             payload = {
-                "model": "google/gemini-2.5-flash",
+                "model": "google/gemini-2.5-flash:free",
                 "messages": [
                     {
                         "role": "system",
