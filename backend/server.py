@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
+import httpx
 import logging
 import io
 import base64
@@ -15,6 +16,9 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 from openpyxl import Workbook
 from openpyxl.styles import Font, Border, Side, PatternFill, Alignment
+
+# Global In-Memory Database Fallback if MongoDB is offline
+IN_MEMORY_DB = []
 
 # Try EmergentIntegrations
 try:
@@ -71,27 +75,72 @@ def image_to_base64(image_bytes: bytes) -> str:
 
 async def extract_table_from_image(image_bytes: bytes, filename: str) -> Dict[str, Any]:
     try:
-        if not EMERGENT_AVAILABLE:
-            return {
-                "success": True,
-                "table_data": [
-                    ["Name", "Age", "City"],
-                    ["John", "25", "NYC"],
-                    ["Alice", "30", "LA"]
-                ],
-                "message": "Table extracted successfully (Mock data)"
-            }
-
+        api_key = os.environ.get('EMERGENT_LLM_KEY')
         image_base64 = image_to_base64(image_bytes)
-        chat = LlmChat(
-            api_key=os.environ.get('EMERGENT_LLM_KEY'),
-            session_id=f"table_extraction_{uuid.uuid4()}",
-            system_message="You are an expert at analyzing handwritten tables and extracting structured data."
-        ).with_model("openai", "gpt-4o")
 
-        image_content = ImageContent(image_base64=image_base64)
+        # 1. Fallback 1: Direct OpenRouter Vision API (if key starts with 'sk-or-' or 'sk-')
+        if api_key and (api_key.startswith('sk-or-') or 'openrouter' in api_key.lower()):
+            logging.info("🧠 Using OpenRouter Direct Vision API for table extraction")
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            }
+            # Use gemini-2.5-flash which is free/extremely cheap and offers outstanding vision/OCR capabilities
+            payload = {
+                "model": "google/gemini-2.5-flash",
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "You are an expert at analyzing handwritten tables and extracting structured data into a valid JSON array of arrays."
+                    },
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "Analyze this handwritten table image and extract all data into structured format.\n\nReturn ONLY a valid JSON array of arrays representing the table, containing header row first and data rows. Do NOT wrap in markdown code fences, do not write ```json, just return pure JSON text."
+                            },
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/png;base64,{image_base64}"
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload)
+                response.raise_for_status()
+                result = response.json()
+                content = result["choices"][0]["message"]["content"].strip()
+                
+                # Clean content if it contains markdown code fences
+                if content.startswith("```"):
+                    content = content.strip("`json").strip("`").strip()
+                
+                table_data = json.loads(content)
+                if not isinstance(table_data, list) or not table_data:
+                    raise ValueError("Parsed data is not a list")
 
-        prompt = """Analyze this handwritten table image and extract all data into structured format.
+                return {
+                    "success": True,
+                    "table_data": table_data,
+                    "message": "Table extracted successfully via OpenRouter"
+                }
+
+        # 2. Standard Emergent Integrations library
+        if EMERGENT_AVAILABLE and api_key:
+            logging.info("🧠 Using EmergentIntegrations library for table extraction")
+            chat = LlmChat(
+                api_key=api_key,
+                session_id=f"table_extraction_{uuid.uuid4()}",
+                system_message="You are an expert at analyzing handwritten tables and extracting structured data."
+            ).with_model("openai", "gpt-4o")
+
+            image_content = ImageContent(image_base64=image_base64)
+            prompt = """Analyze this handwritten table image and extract all data into structured format.
 
 Return ONLY valid JSON array like:
 [
@@ -99,26 +148,30 @@ Return ONLY valid JSON array like:
   ["Row1Col1", "Row1Col2"]
 ]"""
 
-        user_message = UserMessage(text=prompt, file_contents=[image_content])
-        response = await chat.send_message(user_message)
-
-        try:
+            user_message = UserMessage(text=prompt, file_contents=[image_content])
+            response = await chat.send_message(user_message)
             response_text = response.strip()
             if response_text.startswith('```'):
                 response_text = response_text.strip('`json').strip('`')
             table_data = json.loads(response_text.strip())
-
-            if not isinstance(table_data, list) or not table_data:
-                raise ValueError("Invalid table data format")
 
             return {
                 "success": True,
                 "table_data": table_data,
                 "message": "Table extracted successfully"
             }
-        except json.JSONDecodeError as e:
-            logging.error(f"JSON parsing error: {e}")
-            return {"success": False, "message": "Failed to parse extracted data", "table_data": None}
+
+        # 3. Local Fallback / Mock Data if no key is set or library unavailable
+        logging.info("⚠️ No API key or library found. Using local mock OCR data.")
+        return {
+            "success": True,
+            "table_data": [
+                ["Name", "Age", "City"],
+                ["John", "25", "NYC"],
+                ["Alice", "30", "LA"]
+            ],
+            "message": "Table extracted successfully (Mock data fallback)"
+        }
 
     except Exception as e:
         logging.error(f"OCR processing error: {e}")
@@ -177,7 +230,12 @@ async def upload_image(file: UploadFile = File(...)):
 
     if result["success"]:
         table_record = TableData(filename=file.filename, extracted_data=result["table_data"])
-        await db.table_extractions.insert_one(table_record.dict())
+        try:
+            await db.table_extractions.insert_one(table_record.dict())
+        except Exception as e:
+            logging.warning(f"⚠️ MongoDB write failed, using local in-memory DB: {e}")
+            IN_MEMORY_DB.append(table_record.dict())
+
         return ProcessingResult(success=True, message=result["message"],
                                 table_data=result["table_data"], processing_id=table_record.id)
     else:
@@ -185,7 +243,16 @@ async def upload_image(file: UploadFile = File(...)):
 
 @api_router.post("/generate-excel/{processing_id}")
 async def generate_excel(processing_id: str):
-    record = await db.table_extractions.find_one({"id": processing_id})
+    record = None
+    try:
+        record = await db.table_extractions.find_one({"id": processing_id})
+    except Exception as e:
+        logging.warning(f"⚠️ MongoDB read failed, falling back to in-memory DB: {e}")
+
+    if not record:
+        # Search in memory list
+        record = next((r for r in IN_MEMORY_DB if r["id"] == processing_id), None)
+
     if not record:
         raise HTTPException(status_code=404, detail="Processing record not found")
 
@@ -200,7 +267,13 @@ async def generate_excel(processing_id: str):
 
 @api_router.get("/extractions", response_model=List[TableData])
 async def get_extractions():
-    records = await db.table_extractions.find().sort("created_at", -1).to_list(50)
+    records = []
+    try:
+        records = await db.table_extractions.find().sort("created_at", -1).to_list(50)
+    except Exception as e:
+        logging.warning(f"⚠️ MongoDB list failed, reading from in-memory DB: {e}")
+        records = sorted(IN_MEMORY_DB, key=lambda x: x.get("created_at", datetime.utcnow()), reverse=True)[:50]
+
     return [TableData(**record) for record in records]
 
 # Include router
@@ -213,11 +286,14 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 async def startup_event():
     logging.info("🚀 API Started")
     logging.info(f"📊 Database: {mongo_url}/{db_name}")
-    logging.info("🧠 AI Integration: " + ("EmergentIntegrations" if EMERGENT_AVAILABLE else "Mock mode"))
+    logging.info("🧠 AI Integration")
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    client.close()
+    try:
+        client.close()
+    except Exception:
+        pass
     logging.info("📴 Application shutdown complete")
 
 if __name__ == "__main__":
