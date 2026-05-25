@@ -16,9 +16,37 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 from openpyxl import Workbook
 from openpyxl.styles import Font, Border, Side, PatternFill, Alignment
+from PIL import Image as PILImage
 
 # Global In-Memory Database Fallback if MongoDB is offline
 IN_MEMORY_DB = []
+
+# High-efficiency Image Compression to prevent 400 Bad Request Payload Size Limits
+def compress_image(image_bytes: bytes, max_size: int = 1024) -> bytes:
+    try:
+        # Load image
+        img = PILImage.open(io.BytesIO(image_bytes))
+        
+        # Convert to RGB if in RGBA mode (PNGs) to support JPEG saving
+        if img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info):
+            background = PILImage.new("RGB", img.size, (255, 255, 255))
+            background.paste(img, mask=img.split()[3] if img.mode == 'RGBA' else None)
+            img = background
+        elif img.mode != 'RGB':
+            img = img.convert('RGB')
+            
+        # Downscale if larger than max_size (keeps exceptional OCR legibility while reducing size 95%)
+        img.thumbnail((max_size, max_size), PILImage.Resampling.LANCZOS)
+        
+        # Save to buffer with high compression
+        buffer = io.BytesIO()
+        img.save(buffer, format="JPEG", quality=70, optimize=True)
+        compressed = buffer.getvalue()
+        logging.info(f"⚡ Image compressed from {len(image_bytes)} bytes to {len(compressed)} bytes")
+        return compressed
+    except Exception as e:
+        logging.warning(f"⚠️ Failed to compress image, using original: {e}")
+        return image_bytes
 
 # Try EmergentIntegrations
 try:
@@ -151,6 +179,11 @@ async def extract_table_from_image(image_bytes: bytes, filename: str) -> Dict[st
                             "table_data": table_data,
                             "message": f"Table extracted successfully via OpenRouter ({model_name})"
                         }
+                except httpx.HTTPStatusError as http_err:
+                    err_body = http_err.response.text
+                    logging.error(f"❌ OpenRouter HTTP Error {http_err.response.status_code} for {model_name}: {err_body}")
+                    last_error = http_err
+                    continue
                 except Exception as e:
                     logging.warning(f"⚠️ Model {model_name} failed: {e}")
                     last_error = e
@@ -255,7 +288,8 @@ async def upload_image(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Only image files are allowed")
 
     image_bytes = await file.read()
-    result = await extract_table_from_image(image_bytes, file.filename)
+    compressed_bytes = compress_image(image_bytes)
+    result = await extract_table_from_image(compressed_bytes, file.filename)
 
     if result["success"]:
         table_record = TableData(filename=file.filename, extracted_data=result["table_data"])
