@@ -187,8 +187,17 @@ async def extract_table_from_image(image_bytes: bytes, filename: str) -> Dict[st
                     last_error = e
                     continue
 
-            # If all models in the fallback loop fail, raise the last exception
-            raise last_error
+            # If all models in the fallback loop fail, log it and return the exact API error details gracefully
+            err_msg = f"All models failed. Last error: {str(last_error)}"
+            if isinstance(last_error, httpx.HTTPStatusError):
+                err_msg = f"OpenRouter Error: {last_error.response.text}"
+            
+            logging.error(f"❌ {err_msg}")
+            return {
+                "success": False,
+                "message": err_msg,
+                "table_data": None
+            }
 
         # 2. Standard Emergent Integrations library
         if EMERGENT_AVAILABLE and api_key:
