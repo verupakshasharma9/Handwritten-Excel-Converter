@@ -1,6 +1,7 @@
 {
   "name": "handwritten-table-converter-frontend",
   "version": "1.0.0",
+  "homepage": "https://verupakshasharma9.github.io/Handwritten-Excel-Converter",
   "private": true,
   "dependencies": {
     "react": "^18.2.0",
