@@ -276,6 +276,10 @@ async def get_extractions():
 
     return [TableData(**record) for record in records]
 
+@app.get("/")
+async def root_health():
+    return {"message": "Handwritten Table Converter Backend is active and running", "status": "healthy"}
+
 # Include router
 app.include_router(api_router)
 
