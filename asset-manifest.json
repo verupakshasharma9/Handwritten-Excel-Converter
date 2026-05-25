@@ -1,0 +1,13 @@
+{
+  "files": {
+    "main.css": "/Handwritten-Excel-Converter/static/css/main.4ad811ba.css",
+    "main.js": "/Handwritten-Excel-Converter/static/js/main.a96ac266.js",
+    "index.html": "/Handwritten-Excel-Converter/index.html",
+    "main.4ad811ba.css.map": "/Handwritten-Excel-Converter/static/css/main.4ad811ba.css.map",
+    "main.a96ac266.js.map": "/Handwritten-Excel-Converter/static/js/main.a96ac266.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.4ad811ba.css",
+    "static/js/main.a96ac266.js"
+  ]
+}
