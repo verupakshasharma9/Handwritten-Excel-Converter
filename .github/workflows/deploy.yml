@@ -34,8 +34,7 @@ jobs:
           npm run build
         env:
           NODE_ENV: production
-          # You can set the live Render backend URL here if you want to hardcode it in production build:
-          # REACT_APP_BACKEND_URL: https://your-backend.onrender.com
+          REACT_APP_BACKEND_URL: https://handwritten-excel-converter.onrender.com
 
       - name: Deploy to GitHub Pages
         uses: JamesIves/github-pages-deploy-action@v4
