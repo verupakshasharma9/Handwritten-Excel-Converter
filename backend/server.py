@@ -17,6 +17,10 @@ from datetime import datetime
 from openpyxl import Workbook
 from openpyxl.styles import Font, Border, Side, PatternFill, Alignment
 from PIL import Image as PILImage
+import pillow_heif
+
+# Register HEIF opener with Pillow to support iPhone images (HEIC format) natively
+pillow_heif.register_heif_opener()
 
 # Global In-Memory Database Fallback if MongoDB is offline
 IN_MEMORY_DB = []
@@ -110,14 +114,8 @@ async def extract_table_from_image(image_bytes: bytes, filename: str) -> Dict[st
         if api_key and (api_key.startswith('sk-or-') or 'openrouter' in api_key.lower()):
             logging.info("🧠 Using OpenRouter Direct Vision API with resilient model fallback")
             
-            # Dynamically determine image MIME type
-            mime_type = "image/png"
-            if filename.lower().endswith(('.jpg', '.jpeg')):
-                mime_type = "image/jpeg"
-            elif filename.lower().endswith('.gif'):
-                mime_type = "image/gif"
-            elif filename.lower().endswith('.webp'):
-                mime_type = "image/webp"
+            # Since compress_image always outputs a high-efficiency JPEG, MIME type is always image/jpeg
+            mime_type = "image/jpeg"
 
             # OpenRouter requires HTTP-Referer and X-Title for free models
             headers = {
