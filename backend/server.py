@@ -128,9 +128,11 @@ async def extract_table_from_image(image_bytes: bytes, filename: str) -> Dict[st
                     "X-Title": "Handwritten Table Converter"
                 }
                 models_to_try = [
-                    "google/gemini-flash-1.5:free",                   # 100% Free
-                    "qwen/qwen-2-vl-7b-instruct:free",               # 100% Free
-                    "meta-llama/llama-3.2-11b-vision-instruct:free"   # 100% Free
+                    "openrouter/free",                                # Automatically chooses an available free vision model
+                    "google/gemini-2.5-flash:free",                   # 100% Free Gemini 2.5 Flash
+                    "google/gemini-2.0-flash-exp:free",               # 100% Free Gemini 2.0 Flash
+                    "qwen/qwen2.5-vl-72b-instruct:free",             # 100% Free Qwen 2.5 VL
+                    "meta-llama/llama-3.2-11b-vision-instruct:free"   # 100% Free Llama 3.2 11B Vision
                 ]
             else:
                 logging.info("🧠 Using standard OpenAI Vision API with gpt-4o-mini vision fallback")
