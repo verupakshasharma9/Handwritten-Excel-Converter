@@ -127,10 +127,10 @@ async def extract_table_from_image(image_bytes: bytes, filename: str) -> Dict[st
             
             # Resilient list of top free vision/OCR models on OpenRouter
             models_to_try = [
+                "google/gemini-flash-1.5:free",                   # Free, standard highly stable fallback
                 "qwen/qwen-2-vl-7b-instruct:free",               # Free, state-of-the-art vision & outstanding table OCR
                 "meta-llama/llama-3.2-11b-vision-instruct:free",  # Free, fully OpenAI-compatible base64 vision parsing
-                "mistralai/pixtral-12b:free",                     # Free, robust multi-modal OCR engine
-                "google/gemini-flash-1.5-free"                    # Free, standard fallback
+                "mistralai/pixtral-12b:free"                      # Free, robust multi-modal OCR engine
             ]
 
             last_error = None
