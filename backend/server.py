@@ -110,33 +110,42 @@ async def extract_table_from_image(image_bytes: bytes, filename: str) -> Dict[st
         api_key = os.environ.get('EMERGENT_LLM_KEY')
         image_base64 = image_to_base64(image_bytes)
 
-        # 1. Fallback 1: Direct OpenRouter Vision API (if key starts with 'sk-or-' or 'sk-')
-        if api_key and (api_key.startswith('sk-or-') or 'openrouter' in api_key.lower()):
-            logging.info("🧠 Using OpenRouter Direct Vision API with resilient model fallback")
-            
+        # 1. Fallback 1: Direct Vision API (supports both OpenRouter Free & standard OpenAI keys)
+        if api_key:
             # Since compress_image always outputs a high-efficiency JPEG, MIME type is always image/jpeg
             mime_type = "image/jpeg"
 
-            # OpenRouter requires HTTP-Referer and X-Title for free models
-            headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-                "HTTP-Referer": "https://github.com/verupakshasharma9/Handwritten-Excel-Converter",
-                "X-Title": "Handwritten Table Converter"
-            }
-            
-            # Resilient list of top free and extremely cheap paid vision/OCR models on OpenRouter
-            models_to_try = [
-                "google/gemini-2.5-flash",                        # Paid (extreme high availability, ultra-cheap: $0.075/M tokens)
-                "google/gemini-flash-1.5:free",                   # Free-tier
-                "google/gemini-flash-1.5",                        # Paid fallback (ultra-cheap)
-                "meta-llama/llama-3.2-11b-vision-instruct"        # Paid vision fallback
-            ]
+            # Determine endpoint, headers, and model fallback list based on API key prefix
+            if api_key.startswith('sk-or-') or 'openrouter' in api_key.lower():
+                logging.info("🧠 Using OpenRouter Vision API with free-tier model fallbacks")
+                endpoint = "https://openrouter.ai/api/v1/chat/completions"
+                headers = {
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "https://github.com/verupakshasharma9/Handwritten-Excel-Converter",
+                    "X-Title": "Handwritten Table Converter"
+                }
+                models_to_try = [
+                    "google/gemini-flash-1.5:free",                   # 100% Free
+                    "qwen/qwen-2-vl-7b-instruct:free",               # 100% Free
+                    "meta-llama/llama-3.2-11b-vision-instruct:free"   # 100% Free
+                ]
+            else:
+                logging.info("🧠 Using standard OpenAI Vision API with gpt-4o-mini vision fallback")
+                endpoint = "https://api.openai.com/v1/chat/completions"
+                headers = {
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json"
+                }
+                models_to_try = [
+                    "gpt-4o-mini",                                    # OpenAI trial-friendly, ultra-cheap vision model
+                    "gpt-4o"
+                ]
 
             last_error = None
             for model_name in models_to_try:
                 try:
-                    logging.info(f"🚀 Attempting table extraction using OpenRouter model: {model_name}")
+                    logging.info(f"🚀 Attempting table extraction using model: {model_name}")
                     payload = {
                         "model": model_name,
                         "messages": [
@@ -158,7 +167,7 @@ async def extract_table_from_image(image_bytes: bytes, filename: str) -> Dict[st
                         ]
                     }
                     async with httpx.AsyncClient(timeout=60.0) as client:
-                        response = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload)
+                        response = await client.post(endpoint, headers=headers, json=payload)
                         response.raise_for_status()
                         result = response.json()
                         content = result["choices"][0]["message"]["content"].strip()
