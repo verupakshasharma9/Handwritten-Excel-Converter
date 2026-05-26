@@ -125,12 +125,12 @@ async def extract_table_from_image(image_bytes: bytes, filename: str) -> Dict[st
                 "X-Title": "Handwritten Table Converter"
             }
             
-            # Resilient list of top free vision/OCR models on OpenRouter
+            # Resilient list of top free and extremely cheap paid vision/OCR models on OpenRouter
             models_to_try = [
-                "google/gemini-flash-1.5:free",                   # Free, standard highly stable fallback
-                "qwen/qwen-2-vl-7b-instruct:free",               # Free, state-of-the-art vision & outstanding table OCR
-                "meta-llama/llama-3.2-11b-vision-instruct:free",  # Free, fully OpenAI-compatible base64 vision parsing
-                "mistralai/pixtral-12b:free"                      # Free, robust multi-modal OCR engine
+                "google/gemini-2.5-flash",                        # Paid (extreme high availability, ultra-cheap: $0.075/M tokens)
+                "google/gemini-flash-1.5:free",                   # Free-tier
+                "google/gemini-flash-1.5",                        # Paid fallback (ultra-cheap)
+                "meta-llama/llama-3.2-11b-vision-instruct"        # Paid vision fallback
             ]
 
             last_error = None
