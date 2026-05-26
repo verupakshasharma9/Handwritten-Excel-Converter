@@ -201,7 +201,8 @@ async def extract_table_from_image(image_bytes: bytes, filename: str) -> Dict[st
             # If all models in the fallback loop fail, log it and return the exact API error details gracefully
             err_msg = f"All models failed. Last error: {str(last_error)}"
             if isinstance(last_error, httpx.HTTPStatusError):
-                err_msg = f"OpenRouter Error: {last_error.response.text}"
+                provider_name = "OpenRouter" if (api_key.startswith('sk-or-') or 'openrouter' in api_key.lower()) else "OpenAI"
+                err_msg = f"{provider_name} Error: {last_error.response.text}"
             
             logging.error(f"❌ {err_msg}")
             return {
