@@ -108,6 +108,8 @@ def image_to_base64(image_bytes: bytes) -> str:
 async def extract_table_from_image(image_bytes: bytes, filename: str) -> Dict[str, Any]:
     try:
         api_key = os.environ.get('EMERGENT_LLM_KEY')
+        if api_key:
+            api_key = api_key.strip()
         image_base64 = image_to_base64(image_bytes)
 
         # 1. Fallback 1: Direct Vision API (supports both OpenRouter Free & standard OpenAI keys)
